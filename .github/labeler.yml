@@ -1,0 +1,22 @@
+# Rules to label Pull Requests
+version: 1
+labels:
+  - label: "Library"
+    files:
+      - "digital_document_checker/.*"
+  - label: "CI/CD & Tests"
+    files:
+      - "tests/.*"
+      - "tox.ini"
+      - "Dockerfile"
+      - ".github/.*"
+  - label: "Setup"
+    files:
+      - "setup.py"
+      - "pyproject.toml"
+      - "requirements.*.txt"
+      - "requirements.txt"
+  - label: "Docs"
+    files:
+      - "*.md"
+      - "LICENSE"

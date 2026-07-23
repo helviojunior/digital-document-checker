@@ -1,0 +1,162 @@
+# GitHub Action workflow to build and run the tests
+#
+
+name: Test Build
+
+on:
+    push:
+      branches: [ main ]
+      paths-ignore:
+        - .gitignore
+        - README.md
+        - LICENSE
+        - TODO
+        - digital_document_checker/__meta__.py
+        - .github/workflows/build_and_test.yml
+
+    pull_request:
+      branches: [ main ]
+      paths-ignore:
+        - .gitignore
+        - README.md
+        - LICENSE
+        - TODO
+        - digital_document_checker/__meta__.py
+        - .github/workflows/build_and_test.yml
+
+jobs:
+  lint:
+    name: Check syntaxs errors and warnings
+    runs-on: ubuntu-latest
+    if:
+      github.event_name == 'push' || github.event.pull_request.head.repo.full_name !=
+      github.repository
+
+    steps:
+      - name: Checkout digital-document-checker
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.12
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install flake8
+
+      - name: Check syntax errors
+        run: |
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Check PEP8 warnings
+        run: |
+          flake8 . --count --ignore=E1,E2,E3,E501,W291,W293 --exit-zero --max-complexity=65 --max-line-length=127 --statistics
+
+  test:
+    name: Run unit tests
+    needs: lint
+    runs-on: ${{ matrix.os }}
+    if:
+      github.event_name == 'push' || github.event.pull_request.head.repo.full_name !=
+      github.repository
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        experimental: [false]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - python-version: "3.13"
+            experimental: true
+            os: ubuntu-latest
+    continue-on-error: ${{ matrix.experimental }}
+
+    steps:
+      - name: Checkout digital-document-checker
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r tests/requirements-test.txt
+
+      - name: Install digital-document-checker
+        run: |
+          pip install .
+
+      - name: Run unit tests
+        run: |
+          pytest -s tests/
+
+      - name: Build artifact
+        run: |
+          python setup.py sdist
+
+  publish:
+    name: Publish on Test Environment
+    needs: test
+    runs-on: ubuntu-latest
+    if:
+      github.event_name == 'push' || github.event.pull_request.head.repo.full_name !=
+      github.repository
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+        experimental: [false]
+    continue-on-error: ${{ matrix.experimental }}
+
+    steps:
+      - name: Checkout digital-document-checker
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r tests/requirements-test.txt
+
+      - name: Get latest tag
+        id: latest_tag
+        uses: actions-ecosystem/action-get-latest-tag@v1
+        with:
+          semver_only: true
+
+      - name: Change Package version
+        run: |
+          VER=$(echo "${{ steps.latest_tag.outputs.tag }}" | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}')
+          if [ -z "$VER" ]; then
+            VER="0.0.0"
+          fi
+          BUILDDT=$(date '+%Y%m%d%H%M%S')
+          GITHASH=$(git rev-parse --short HEAD)
+          meta=$(cat digital_document_checker/__meta__.py | sed "s/__version__.*/__version__ = '"${VER}"-"${BUILDDT}"'/" | sed "s/__build__.*/__build__ = 0x"${GITHASH}"/")
+          echo "$meta" > digital_document_checker/__meta__.py
+
+      - name: Install digital-document-checker
+        run: |
+          pip install .
+
+      - name: Build artifact
+        run: |
+          python setup.py sdist
+
+      - name: Publish package in Test Environment
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.test_pypi_password }}
+          repository_url: https://test.pypi.org/legacy/
+          skip_existing: true
