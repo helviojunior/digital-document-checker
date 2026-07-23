@@ -98,6 +98,42 @@ python -m digital_document_checker cnh.pdf
 python -m digital_document_checker cnh.pdf --json --save-photo foto.png
 ```
 
+## Uso com Docker
+
+A imagem já traz o projeto instalado (clonado no *build*) com todas as
+dependências de leitura de QRCode e PDF (`pyzbar`/`zbar`, `Pillow`, `PyMuPDF`).
+
+Build:
+
+```bash
+docker build -t digital-document-checker .
+
+# opcional: fixar um branch ou tag do repositório
+docker build --build-arg GIT_REF=main -t digital-document-checker .
+```
+
+Execução — monte o diretório com seus arquivos em `/data`:
+
+```bash
+# saída legível
+docker run --rm -v "$PWD:/data" digital-document-checker /data/cnh.pdf
+
+# saída JSON
+docker run --rm -v "$PWD:/data" digital-document-checker /data/cnh.pdf --json
+
+# salvar a foto embarcada (BPG) ao lado do documento
+docker run --rm -v "$PWD:/data" digital-document-checker \
+    /data/cnh.pdf --save-photo /data/foto.png
+
+# ajuda
+docker run --rm digital-document-checker --help
+```
+
+> A conversão da foto **BPG → PNG** (`--save-photo *.png`) depende do binário
+> `bpgdec` (libbpg), que não possui pacote apt. Sem ele, a foto ainda é
+> extraída no formato BPG; a extração dos dados e a verificação da assinatura
+> **não** dependem disso.
+
 ## O que é verificado
 
 1. **Envelope** — timestamp de emissão + versão (cabeçalho hexadecimal de 10
