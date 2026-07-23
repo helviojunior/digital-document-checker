@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from ..models import RawPayload, Template
+from ._helpers import map_fields
 from .base import DocumentData, DocumentHandler
 
 # Ordem canônica dos campos (template 4; o 83 acrescenta ``nome_civil`` na 2ª
@@ -80,25 +81,4 @@ class CNHHandler(DocumentHandler):
         return bool(template and template.name and template.name.strip().upper() == "CNH")
 
     def build(self, payload: RawPayload, template: Optional[Template]) -> CNHData:
-        order = (
-            template.field_names
-            if template and template.field_names
-            else FIELD_ORDER_DEFAULT
-        )
-        values = payload.field_values
-
-        fields: dict[str, str] = {}
-        for index, name in enumerate(order):
-            fields[name] = values[index].strip() if index < len(values) else ""
-
-        # valores extra que não têm nome no template
-        extras = values[len(order):]
-
-        data = CNHData(raw_fields=list(values), fields=dict(fields))
-        for name, value in fields.items():
-            if hasattr(data, name):
-                setattr(data, name, value)
-            data.fields[name] = value
-        if extras:
-            data.fields["_extras"] = extras
-        return data
+        return map_fields(CNHData(), payload, template, FIELD_ORDER_DEFAULT)

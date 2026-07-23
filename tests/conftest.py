@@ -2,6 +2,7 @@ import base64
 
 import pytest
 
+from digital_document_checker.codecs import base91
 from digital_document_checker.codecs.text import encode_6bit
 from digital_document_checker.models import Certificate
 from digital_document_checker.registry import CertificateStore, TemplateStore
@@ -15,6 +16,31 @@ def build_v2_qr(fields_text: str, *, template_id: int, timestamp: int, sign) -> 
     signed_prefix = header + prefix + encoded_fields  # header + payload[0:i9]
     signature = sign(signed_prefix)  # 256 bytes (RSA)
     payload = prefix + encoded_fields + signature
+    return header + payload
+
+
+def build_v3_qr(
+    fields_text: str,
+    *,
+    template_id: int,
+    timestamp: int,
+    sign,
+    photo: bytes = b"",
+    extra: bytes = b"",
+) -> bytes:
+    """Monta um QRCode v3 (DNI) e assina o dado reconstruído."""
+    header = f"{timestamp:08x}{3:02x}".encode("latin-1")  # versão 3
+    tid = template_id.to_bytes(2, "big")
+    fields_b91 = base91.encode(fields_text.encode("latin-1")).encode("latin-1")
+
+    len1 = len(photo).to_bytes(2, "big")
+    len2 = len(fields_b91).to_bytes(2, "big")
+
+    # signed = header + tid + (len1 + photo) + (len2 + fields_b91)
+    signed = header + tid + len1 + photo + len2 + fields_b91
+    signature = sign(signed)  # 256 bytes
+
+    payload = tid + signature + len1 + photo + len2 + fields_b91 + extra
     return header + payload
 
 

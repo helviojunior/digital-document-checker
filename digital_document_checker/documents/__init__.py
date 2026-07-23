@@ -11,6 +11,8 @@ from typing import Optional
 from ..models import Template
 from .base import DocumentData, DocumentHandler
 from .cnh import CNHData, CNHHandler
+from .dni import DNIData, DNIHandler
+from .rg import RGData, RGHandler
 from .generic import GenericHandler
 
 _HANDLERS: list[DocumentHandler] = []
@@ -33,6 +35,8 @@ def find_handler(template_id: int, template: Optional[Template]) -> DocumentHand
 
 # handlers embarcados
 register_handler(CNHHandler())
+register_handler(DNIHandler())
+register_handler(RGHandler())
 
 
 __all__ = [
@@ -40,6 +44,10 @@ __all__ = [
     "DocumentHandler",
     "CNHData",
     "CNHHandler",
+    "DNIData",
+    "DNIHandler",
+    "RGData",
+    "RGHandler",
     "GenericHandler",
     "register_handler",
     "find_handler",

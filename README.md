@@ -12,9 +12,20 @@ Biblioteca Python **modular** para *parsing*, verificação e validação de
 documentos digitais brasileiros codificados em QRCode (padrão SERPRO / VIO /
 Carteira Digital de Trânsito).
 
-O primeiro tipo suportado é a **CNH** (Carteira Nacional de Habilitação), mas a
-arquitetura permite adicionar outros tipos (DNI, RG Digital, CRLV, identidades
-funcionais, ...) como submódulos independentes.
+Tipos de documento já com submódulo próprio:
+
+| Tipo         | Módulo                      | Templates    | Emissor   | Status        |
+|--------------|-----------------------------|--------------|-----------|---------------|
+| **CNH**      | `documents/cnh.py`          | 2, 4, 83     | SENATRAN  | verificado    |
+| **DNI**      | `documents/dni.py`          | 8, 9, 73     | TSE       | experimental¹ |
+| **RG Digital** | `documents/rg.py`         | 91, 92       | GovBr     | experimental¹ |
+
+A arquitetura permite adicionar outros tipos (CRLV, identidades funcionais, ...)
+como submódulos independentes — veja
+[Adicionando um novo tipo de documento](#adicionando-um-novo-tipo-de-documento).
+
+> ¹ *Experimental*: parsing implementado a partir da engenharia reversa do app
+> oficial, ainda **não validado contra amostras reais** desses documentos.
 
 > ⚠️ **Leia o [Disclaimer / Aviso Legal](#disclaimer--aviso-legal) antes de usar.**
 > Projeto **pessoal**, sem qualquer garantia. O uso é **por sua conta e risco**.
@@ -109,13 +120,16 @@ digital_document_checker/
 ├── crypto.py             # verificação RSA / ECDSA
 ├── images.py, qr.py      # foto embarcada e leitura de QRCode
 ├── codecs/               # bits, alfabetos 6/7 bits, basE91
-├── formats/              # parsers por versão de envelope (2 = CNH, ...)
+├── formats/              # parsers por versão de envelope (2 = CNH, 3 = DNI, ...)
 │   ├── envelope.py
 │   ├── v2_cnh.py         # CNH (verificado)
+│   ├── v3_dni.py         # DNI (experimental)
 │   ├── multiblock.py     # versões 4/5/6 (experimental)
 │   └── v1_text.py        # versão 1 legada (experimental)
 ├── documents/            # submódulos por tipo de documento
 │   ├── cnh.py            # CNH  <- verificado
+│   ├── dni.py            # DNI  (experimental)
+│   ├── rg.py             # RG Digital (experimental)
 │   └── generic.py
 └── data/                 # certificates.json, templates.json
 ```
