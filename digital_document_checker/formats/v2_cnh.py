@@ -1,4 +1,4 @@
-"""Formato da versão 2 — usado pela CNH (classe ``j.C0659F`` no APK).
+"""Formato da versão 2 — usado pela CNH (classe ``n2.c`` no APK).
 
 Layout do payload (após o cabeçalho hexadecimal de 10 bytes)::
 
@@ -8,7 +8,8 @@ Layout do payload (após o cabeçalho hexadecimal de 10 bytes)::
     [i9:i10]       assinatura digital (256 bytes)   i9=i8+4, i10=i8+260
     [i10:]         foto BPG (sem o magic "BPG")
 
-Dado assinado = cabeçalho original + payload sem o bloco de assinatura::
+Dado assinado = cabeçalho reconstruído (ver :attr:`Envelope.signed_header`) +
+payload sem o bloco de assinatura::
 
     signed = header10 + payload[0:i9] + payload[i10:]
 """
@@ -38,7 +39,7 @@ def parse(envelope: Envelope) -> RawPayload:
     if len(payload) < i9:
         raise ParseError("payload v2 truncado nos campos codificados")
 
-    fields_raw = decode_6bit(payload[4:i9]).rstrip()
+    fields_raw = decode_6bit(payload[4:i9]).strip()
 
     warnings: list[str] = []
     signature = payload[i9:i10]
@@ -49,7 +50,7 @@ def parse(envelope: Envelope) -> RawPayload:
     photo_with_magic = b"BPG" + photo if photo else None
 
     # Reconstrói o dado assinado sem o bloco da assinatura.
-    signed_data = envelope.raw + payload[:i9] + payload[i10:]
+    signed_data = envelope.signed_header + payload[:i9] + payload[i10:]
 
     field_values = fields_raw.split("^") if fields_raw else []
 

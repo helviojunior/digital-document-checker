@@ -78,6 +78,17 @@ class Envelope:
     issued_timestamp: int
     payload: bytes
 
+    @property
+    def signed_header(self) -> bytes:
+        """Cabeçalho usado no dado assinado.
+
+        O app **sempre** reconstrói o cabeçalho como 8 dígitos hexadecimais de
+        timestamp + 2 de versão, em minúsculas e ISO-8859-1 — inclusive quando
+        o QRCode trouxe o cabeçalho binário de 5 bytes. Por isso o dado
+        assinado não usa :attr:`raw` diretamente.
+        """
+        return f"{self.issued_timestamp:08x}{self.version:02x}".encode("latin-1")
+
 
 @dataclass
 class RawPayload:

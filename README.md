@@ -192,14 +192,23 @@ register_handler(MeuDocHandler(), prepend=True)
 
 ## Notas sobre o formato (engenharia reversa)
 
-- O conteúdo do QRCode é binário transportado como texto Latin-1.
+- O conteúdo do QRCode é binário transportado como texto Latin-1 (ISO-8859-1).
 - A CNH (versão 2) empacota os campos em **6 bits por caractere** (alfabeto
   ASCII 32–95), seguidos de **256 bytes de assinatura** e da **foto em BPG**.
 - O decodificador de bits desta biblioteca foi validado byte-a-byte contra o
   decodificador do aplicativo oficial de referência.
+- O **dado assinado** nunca usa os bytes originais do cabeçalho: o app sempre o
+  reconstrói como 8 dígitos hexadecimais de timestamp + 2 de versão, em
+  minúsculas — inclusive quando o QRCode traz o cabeçalho binário de 5 bytes.
+- Campos por versão: **1** basE91, **2** e **5** 6 bits, **4** 7 bits,
+  **3** e **6** basE91. As versões 4, 5 e 6 também transportam a foto no bloco
+  intermediário.
 - As versões 1, 4, 5 e 6 (outros tipos de documento) têm parsing estrutural
   implementado, porém ainda **não validados contra amostras reais** — marcados
   como experimentais no código.
+- Os arquivos `data/certificates.json` e `data/templates.json` acompanham o app
+  oficial (última sincronização: VIO 2.4.5). A origem remota é
+  `https://vio.serpro.gov.br/api/v2/{certificates,templates}`.
 
 ## Disclaimer / Aviso Legal
 

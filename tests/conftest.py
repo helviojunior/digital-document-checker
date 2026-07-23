@@ -3,7 +3,7 @@ import base64
 import pytest
 
 from digital_document_checker.codecs import base91
-from digital_document_checker.codecs.text import encode_6bit
+from digital_document_checker.codecs.text import encode_6bit, encode_7bit
 from digital_document_checker.models import Certificate
 from digital_document_checker.registry import CertificateStore, TemplateStore
 
@@ -41,6 +41,75 @@ def build_v3_qr(
     signature = sign(signed)  # 256 bytes
 
     payload = tid + signature + len1 + photo + len2 + fields_b91 + extra
+    return header + payload
+
+
+def build_v1_qr(
+    fields_text: str,
+    *,
+    template_id: int,
+    timestamp: int,
+    sign,
+    image: bytes = b"",
+) -> bytes:
+    """Monta um QRCode v1 (texto/basE91) exatamente como o app o assina."""
+    header = f"{timestamp:08x}{1:02x}"
+    template_hex = f"{template_id:x}"
+
+    fields_b91 = base91.encode(fields_text.encode("latin-1"))
+    image_b91 = base91.encode(image) if image else ""
+
+    # signed = header + seg0 + "-" + campos decodificados + "-" + bytes da imagem
+    signed = f"{header}{template_hex}-{fields_text}-".encode("latin-1") + image
+    signature_b91 = base91.encode(sign(signed))
+
+    payload = f"{template_hex}-{fields_b91}-{image_b91}\\{signature_b91}"
+    return (header + payload).encode("latin-1")
+
+
+def encode_multiblock_fields(fields_text: str, version: int) -> bytes:
+    """Codifica o bloco de campos no alfabeto usado por cada versão multibloco."""
+    if version == 4:
+        return encode_7bit(fields_text)
+    if version == 5:
+        return encode_6bit(fields_text)
+    if version == 6:
+        return base91.encode(fields_text.encode("latin-1")).encode("latin-1")
+    raise ValueError(f"versão multibloco inesperada: {version}")
+
+
+def build_multiblock_qr(
+    fields_text: str,
+    *,
+    version: int,
+    template_id: int,
+    timestamp: int,
+    sign,
+    photo: bytes = b"",
+    extra: bytes = b"",
+) -> bytes:
+    """Monta um QRCode multibloco (v4/v5/v6) e assina o dado reconstruído."""
+    header = f"{timestamp:08x}{version:02x}".encode("latin-1")
+    fields_block = encode_multiblock_fields(fields_text, version)
+
+    b0 = template_id.to_bytes(2, "big")
+    len2 = len(photo).to_bytes(2, "big")
+    len3 = len(fields_block).to_bytes(2, "big")
+
+    # signed = ts[4:8] + versao + b0 + len2 + foto + len3 + campos
+    signed = (
+        timestamp.to_bytes(8, "big")[4:8]
+        + bytes([version])
+        + b0
+        + len2
+        + photo
+        + len3
+        + fields_block
+    )
+    signature = sign(signed)  # 256 bytes (RSA)
+    len1 = len(signature).to_bytes(2, "big")
+
+    payload = b0 + len1 + signature + len2 + photo + len3 + fields_block + extra
     return header + payload
 
 

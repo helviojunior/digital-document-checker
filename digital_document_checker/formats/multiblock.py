@@ -1,4 +1,4 @@
-"""Formatos multibloco das versões 4, 5 e 6 (classes ``y1.f``/``y1.h``/``y1.j``).
+"""Formatos multibloco das versões 4, 5 e 6 (classes ``p4.f``/``p4.h``/``p4.j``).
 
 O payload é dividido em blocos com prefixos de tamanho de 2 bytes::
 
@@ -6,20 +6,19 @@ O payload é dividido em blocos com prefixos de tamanho de 2 bytes::
     blocks[1] = len1                 (2 bytes)
     blocks[2] = assinatura           (len1 bytes)
     blocks[3] = len2                 (2 bytes)
-    blocks[4] = bloco intermediário  (len2 bytes)
+    blocks[4] = foto                 (len2 bytes, BPG sem o magic)
     blocks[5] = len3                 (2 bytes)
     blocks[6] = campos codificados   (len3 bytes)
     blocks[7] = restante / extra     (até o fim)
 
-Dado assinado (ver ``.i()`` no APK)::
+Dado assinado (ver ``.r()`` no APK)::
 
     signed = timestamp[4:8] + versao(1 byte)
              + blocks[0] + blocks[3] + blocks[4] + blocks[5] + blocks[6]
 
 .. note::
    Estas versões cobrem documentos além da CNH e ainda não foram validadas
-   contra amostras reais; o parsing estrutural e a extração da assinatura são
-   confiáveis, mas a decodificação dos campos é *best-effort*.
+   contra amostras reais.
 """
 
 from __future__ import annotations
@@ -29,6 +28,8 @@ from ..codecs.text import decode_6bit, decode_7bit
 from ..exceptions import ParseError
 from ..models import Envelope, RawPayload
 from .base import register_format
+
+PHOTO_MAGIC = b"BPG"
 
 
 def _split_blocks(payload: bytes) -> list[bytes]:
@@ -60,12 +61,12 @@ def _split_blocks(payload: bytes) -> list[bytes]:
 def _decode_fields(block: bytes, version: int) -> str:
     if not block:
         return ""
-    if version == 4:  # y1.f → alfabeto de 7 bits
+    if version == 4:  # p4.f → alfabeto de 7 bits
         return decode_7bit(block)
-    if version == 5:  # y1.h → alfabeto de 6 bits
-        return decode_6bit(block).rstrip()
-    # version 6 (y1.j) → basE91 e depois 7 bits
-    return decode_7bit(base91.decode(block))
+    if version == 5:  # p4.h → alfabeto de 6 bits (o app não faz trim aqui)
+        return decode_6bit(block)
+    # version 6 (p4.j) → basE91 lido como ISO-8859-1
+    return base91.decode(block).decode("latin-1")
 
 
 def _parse(envelope: Envelope, version: int) -> RawPayload:
@@ -92,9 +93,10 @@ def _parse(envelope: Envelope, version: int) -> RawPayload:
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"falha ao decodificar campos (v{version}): {exc}")
 
-    field_values = fields_raw.split("^") if "^" in fields_raw else (
-        [fields_raw] if fields_raw else []
-    )
+    field_values = fields_raw.split("^") if fields_raw else []
+
+    # blocks[4] é a foto BPG, gravada sem o magic (ver ``.r()`` no APK).
+    photo = (PHOTO_MAGIC + blocks[4]) if blocks[4] else None
 
     return RawPayload(
         template_id=template_id,
@@ -102,6 +104,7 @@ def _parse(envelope: Envelope, version: int) -> RawPayload:
         signature=signature,
         fields_raw=fields_raw,
         field_values=field_values,
+        photo=photo,
         extra=blocks[7] or None,
         warnings=warnings,
     )

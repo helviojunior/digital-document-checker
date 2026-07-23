@@ -1,4 +1,4 @@
-"""Formato da versão 3 — usado pelo DNI/TSE (classe ``y1.d`` no APK).
+"""Formato da versão 3 — usado pelo DNI/TSE (classe ``p4.d`` no APK).
 
 Layout do payload (após o cabeçalho de 10 bytes)::
 
@@ -10,7 +10,7 @@ Layout do payload (após o cabeçalho de 10 bytes)::
     [262+len1:...]        campos em basE91 (separados por '^')
     [...:]               extra (hash/segunda assinatura)
 
-Dado assinado (ver ``.i()`` no APK)::
+Dado assinado (ver ``.x()`` no APK)::
 
     signed = header + payload[0:2] + payload[258:260+len1]
              + payload[260+len1:262+len1+len2]
@@ -63,7 +63,7 @@ def parse(envelope: Envelope) -> RawPayload:
     photo = (PHOTO_MAGIC + photo_block) if photo_block else None
 
     signed_data = (
-        envelope.raw
+        envelope.signed_header
         + payload[0:2]
         + payload[258:photo_end]
         + payload[photo_end:fields_end]
