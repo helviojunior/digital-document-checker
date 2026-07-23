@@ -48,7 +48,7 @@ RUN sed -i 's/^USE_BPGVIEW=y/USE_BPGVIEW=n/' Makefile \
 # ---------------------------------------------------------------------------
 FROM python:3.12-slim
 
-ARG GIT_REPO=https://github.com/helviojunior/digital_document_checker.git
+ARG GIT_REPO=https://github.com/helviojunior/digital-document-checker.git
 ARG GIT_REF=main
 
 # Dependências nativas:
@@ -70,8 +70,8 @@ COPY --from=bpg-builder /build/libbpg/bpgdec /usr/local/bin/bpgdec
 WORKDIR /opt
 
 # Clona e instala o projeto (com as dependências opcionais de QR/PDF).
-RUN git clone --depth 1 --branch "${GIT_REF}" "${GIT_REPO}" digital_document_checker \
-    && pip install --no-cache-dir "./digital_document_checker[full]"
+RUN git clone --depth 1 --branch "${GIT_REF}" "${GIT_REPO}" digital-document-checker \
+    && pip install --no-cache-dir "./digital-document-checker[full]"
 
 # Diretório de trabalho para os arquivos do usuário (montado via -v).
 WORKDIR /data
