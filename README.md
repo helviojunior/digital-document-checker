@@ -101,7 +101,9 @@ python -m digital_document_checker cnh.pdf --json --save-photo foto.png
 ## Uso com Docker
 
 A imagem já traz o projeto instalado (clonado no *build*) com todas as
-dependências de leitura de QRCode e PDF (`pyzbar`/`zbar`, `Pillow`, `PyMuPDF`).
+dependências de leitura de QRCode e PDF (`pyzbar`/`zbar`, `Pillow`, `PyMuPDF`)
+e o `bpgdec` (libbpg) **compilado**, habilitando a conversão da foto BPG → PNG
+dentro do container.
 
 Build:
 
@@ -121,7 +123,7 @@ docker run --rm -v "$PWD:/data" digital-document-checker /data/cnh.pdf
 # saída JSON
 docker run --rm -v "$PWD:/data" digital-document-checker /data/cnh.pdf --json
 
-# salvar a foto embarcada (BPG) ao lado do documento
+# salvar a foto embarcada, convertida para PNG (bpgdec incluso na imagem)
 docker run --rm -v "$PWD:/data" digital-document-checker \
     /data/cnh.pdf --save-photo /data/foto.png
 
@@ -129,10 +131,10 @@ docker run --rm -v "$PWD:/data" digital-document-checker \
 docker run --rm digital-document-checker --help
 ```
 
-> A conversão da foto **BPG → PNG** (`--save-photo *.png`) depende do binário
-> `bpgdec` (libbpg), que não possui pacote apt. Sem ele, a foto ainda é
-> extraída no formato BPG; a extração dos dados e a verificação da assinatura
-> **não** dependem disso.
+> A conversão da foto **BPG → PNG** (`--save-photo *.png`) usa o `bpgdec`, que já
+> vem compilado na imagem Docker. Fora do Docker, essa conversão específica exige
+> o `bpgdec` (libbpg) no `PATH`; sem ele, a foto ainda é extraída em BPG e a
+> extração dos dados e a verificação da assinatura **não** dependem disso.
 
 ## O que é verificado
 
