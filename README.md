@@ -120,13 +120,18 @@ result.data.cpf_formatado      # "123.456.789-01"
 result.data.data_nascimento    # "07/08/1981"   (claim 'dns')
 result.data.data_validade      # "02/02/2036"   (claim 'dvd')
 result.data.url                # "https://cin.mj.gov.br/cidadao/<uuid>"
-result.data.uuid               # chave usada pelo app na consulta online
+result.data.uuid               # identificador usado pelo app na consulta online
 result.data.outras_claims      # demais claims do JWT
 ```
 
 O QRCode carrega **CPF, data de nascimento e data de validade**. Nome, filiação
-e sexo só existem na leitura *online*, consultados na API do MJSP a partir do
-`uuid` — esta biblioteca **não** faz chamadas de rede.
+e sexo só existem na leitura *online*, autenticada e com consentimento do
+titular — esta biblioteca **não** faz chamadas de rede. Veja
+[Leitura online](#leitura-online--fora-do-escopo-desta-biblioteca).
+
+> A `url` do QRCode **não é um link para abrir no navegador** (devolve 404): ela
+> só transporta o `uuid`. Detalhes em
+> [A claim `url` não é um link](#a-claim-url-não-é-um-link).
 
 As checagens reproduzem `processQrCode` do app: `cpf` presente, `iss == "MJSP"`,
 `url` presente e terminando em UUID, e assinatura válida. Cada checagem
@@ -293,8 +298,68 @@ register_handler(MeuDocHandler(), prepend=True)
 - A claim **`dvd`** não é usada pelo app 1.19.0 — ele só renderiza CPF e `dns` na
   tela offline —, mas o rótulo `dateValid` ("DATA DE VALIDADE") já existe em
   `commonStrings.qrCodeScreen.validateOff`. Aqui ela é lida e usada na expiração.
-- Os demais dados vêm de `POST /api/dados` com o `uuid` — fora do escopo desta
-  biblioteca, que não faz rede.
+
+#### A claim `url` não é um link
+
+Abrir a `url` do QRCode no navegador devolve **HTTP 404** — e isso é o
+comportamento esperado, não um erro de leitura. O app **nunca navega até ela
+nem faz requisição a esse endereço**. Em `processQrCode` a `url` serve para
+exatamente duas coisas:
+
+1. verificar `typeof payload.url === 'string'`;
+2. extrair o UUID do final com a regex acima.
+
+Ou seja, ela é um **carregador de identificador**, não um destino. O host de
+API do app é outro caminho: `CURRENT_ENV.baseUrl` em PROD é
+`https://cin.mj.gov.br/api/`, e não `/cidadao/`.
+
+#### Leitura online — fora do escopo desta biblioteca
+
+Documentado apenas para explicar o que **não** está implementado aqui: esta
+biblioteca valida a assinatura localmente e **não faz nenhuma chamada de rede**.
+
+Ambientes (`ENVIRONMENTS`):
+
+| Ambiente | `baseUrl`                             | SSO                            | `clientId`              |
+|----------|---------------------------------------|--------------------------------|-------------------------|
+| `PROD`   | `https://cin.mj.gov.br/api/`          | `sso.acesso.gov.br`            | `mobile.cin.mj.gov.br`  |
+| `HML`    | `https://hmlcinapi.mj.gov.br/api/v1/` | `sso.staging.acesso.gov.br`    | `identidadenacionaldsv` |
+| `TST`    | `https://tstcin.mj.gov.br/api/`       | `sso.staging.acesso.gov.br`    | `identidadenacionaldsv` |
+
+Endpoints (relativos ao `baseUrl`):
+
+| Constante                   | Caminho                  |
+|-----------------------------|--------------------------|
+| `POST_DATA`                 | `dados`                  |
+| `GET_SIGNATURE_VALIDATION`  | `carteiras/jwt/validar`  |
+| `GET_IDENTITY`              | `identidade`             |
+| `GET_HISTORY`               | `historico`              |
+| `PERMISSIONS`               | `permissao`              |
+| `POST_DEVICE_ID`            | `dispositivoid`          |
+| `POST_NOTIFICATION`         | `notification`           |
+| `POST_NOTIFICATION_APPROVED`| `notificacoes-aprovado`  |
+| —                           | `justificativas`         |
+
+As duas chamadas do fluxo de leitura:
+
+```
+POST {baseUrl}dados
+     {cpfConsultado, idJustificativa, nomeConsultante, uuid}
+
+POST {baseUrl}carteiras/jwt/validar
+     {jwt: "<token lido do QRCode>"}
+```
+
+Nada disso é anônimo. O app exige login **gov.br** via OAuth2 + PKCE
+(`response_type=code`, `code_challenge_method=S256`, scopes `openid`, `email`,
+`profile`, `govbr_confiabilidades`, `redirect_uri=identidadenacional://logged`),
+e a consulta ainda pede **justificativa** e **nome de quem consulta**. Há também
+uma etapa de consentimento — a tela "Aguardando a aprovação do acesso aos
+dados", em que o titular aprova a consulta no próprio celular.
+
+Por isso a leitura offline entrega apenas CPF, data de nascimento e validade:
+é tudo o que viaja no QRCode. O restante (nome, filiação, sexo, naturalidade,
+situação do documento) é servidor, autenticado e com consentimento do titular.
 
 ### Leitura do QRCode em digitalizações
 
