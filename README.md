@@ -9,8 +9,8 @@
 [![License: MIT](https://img.shields.io/pypi/l/digital-document-checker.svg)](https://github.com/helviojunior/digital-document-checker/blob/main/LICENSE)
 
 Biblioteca Python **modular** para *parsing*, verificação e validação de
-documentos digitais brasileiros codificados em QRCode (padrão SERPRO / VIO /
-Carteira Digital de Trânsito).
+documentos digitais brasileiros codificados em QRCode — o padrão SERPRO / VIO /
+Carteira Digital de Trânsito e a **CIN** (Carteira de Identidade Nacional).
 
 Tipos de documento já com submódulo próprio:
 
@@ -19,6 +19,7 @@ Tipos de documento já com submódulo próprio:
 | **CNH**      | `documents/cnh.py`          | 2, 4, 83     | SENATRAN  | verificado    |
 | **DNI**      | `documents/dni.py`          | 8, 9, 73     | TSE       | experimental¹ |
 | **RG Digital** | `documents/rg.py`         | 91, 92       | GovBr     | experimental¹ |
+| **CIN**      | `documents/cin.py`          | — (JWT)      | MJSP      | experimental¹ |
 
 A arquitetura permite adicionar outros tipos (CRLV, identidades funcionais, ...)
 como submódulos independentes — veja
@@ -96,6 +97,52 @@ Linha de comando:
 ```bash
 python -m digital_document_checker cnh.pdf
 python -m digital_document_checker cnh.pdf --json --save-photo foto.png
+python -m digital_document_checker cin.jpg              # CIN: detectada automaticamente
+```
+
+### CIN — Carteira de Identidade Nacional
+
+O QRCode impresso no **verso da CIN** não usa o envelope binário do padrão VIO:
+seu conteúdo é um **JWT assinado** (`ES512`, curva P-521) emitido pelo MJSP. A
+detecção é automática — o mesmo `DigitalDocumentChecker` reconhece o formato e
+escolhe o caminho certo.
+
+```python
+result = checker.parse_image("cin_verso.jpg")   # ou parse_qr_text(<token JWT>)
+
+result.document_type       # "cin"
+result.header_format       # "jws"
+result.is_authentic        # assinatura ES512 conferida contra a chave do app
+result.signature.algorithm # "ES512"
+
+result.data.cpf                # "12345678901"
+result.data.cpf_formatado      # "123.456.789-01"
+result.data.data_nascimento    # "07/08/1981"   (claim 'dns')
+result.data.data_validade      # "02/02/2036"   (claim 'dvd')
+result.data.url                # "https://cin.mj.gov.br/cidadao/<uuid>"
+result.data.uuid               # chave usada pelo app na consulta online
+result.data.outras_claims      # demais claims do JWT
+```
+
+O QRCode carrega **CPF, data de nascimento e data de validade**. Nome, filiação
+e sexo só existem na leitura *online*, consultados na API do MJSP a partir do
+`uuid` — esta biblioteca **não** faz chamadas de rede.
+
+As checagens reproduzem `processQrCode` do app: `cpf` presente, `iss == "MJSP"`,
+`url` presente e terminando em UUID, e assinatura válida. Cada checagem
+reprovada vira um item em `result.errors` — os campos continuam sendo extraídos.
+
+As chaves públicas ficam em `data/cin_keys.json` (ambientes `PROD`, `HML` e
+`TST` do app; `PROD` é o padrão, como em `CURRENT_ENV`):
+
+```bash
+python -m digital_document_checker cin.jpg --cin-env '*'   # tenta todos os ambientes
+```
+
+```python
+from digital_document_checker import CINKeyStore, DigitalDocumentChecker
+
+checker = DigitalDocumentChecker(cin_keys=CINKeyStore.from_file("minhas_chaves.json"))
 ```
 
 ## Uso com Docker
@@ -138,6 +185,8 @@ docker run --rm digital-document-checker --help
 
 ## O que é verificado
 
+**Padrão VIO/SERPRO (CNH, DNI, RG Digital):**
+
 1. **Envelope** — timestamp de emissão + versão (cabeçalho hexadecimal de 10
    bytes ou binário de 5 bytes).
 2. **Formato** — o parser correto é escolhido pela versão (CNH = versão 2).
@@ -148,18 +197,29 @@ docker run --rm digital-document-checker --help
    validade do certificado na data de emissão.
 5. **Expiração** — a partir do campo de validade do próprio documento.
 
+**CIN:**
+
+1. **Formato** — JWS compacto de três segmentos (`header.payload.signature`).
+2. **Claims** — `cpf` presente, `iss == "MJSP"`, `url` presente e terminando em
+   um UUID.
+3. **Assinatura digital** — `ES512` (P-521) sobre `header.payload`, contra a
+   chave pública JWK de `data/cin_keys.json`.
+4. **Expiração** — pela claim `dvd` (a validade impressa no cartão) ou, na
+   falta dela, pelo `exp` do JWT.
+
 ## Estrutura
 
 ```
 digital_document_checker/
 ├── checker.py            # orquestrador (parse -> verifica -> valida)
 ├── models.py             # DocumentResult, Certificate, Template, Photo, ...
-├── registry.py           # CertificateStore / TemplateStore (JSONs oficiais)
-├── crypto.py             # verificação RSA / ECDSA
+├── registry.py           # CertificateStore / TemplateStore / CINKeyStore
+├── crypto.py             # verificação RSA / ECDSA / JWS (ES256-512)
 ├── images.py, qr.py      # foto embarcada e leitura de QRCode
 ├── codecs/               # bits, alfabetos 6/7 bits, basE91
 ├── formats/              # parsers por versão de envelope (2 = CNH, 3 = DNI, ...)
 │   ├── envelope.py
+│   ├── jws.py            # JWS compacto (CIN)
 │   ├── v2_cnh.py         # CNH (verificado)
 │   ├── v3_dni.py         # DNI (experimental)
 │   ├── multiblock.py     # versões 4/5/6 (experimental)
@@ -168,8 +228,9 @@ digital_document_checker/
 │   ├── cnh.py            # CNH  <- verificado
 │   ├── dni.py            # DNI  (experimental)
 │   ├── rg.py             # RG Digital (experimental)
+│   ├── cin.py            # CIN  (experimental)
 │   └── generic.py
-└── data/                 # certificates.json, templates.json
+└── data/                 # certificates.json, templates.json, cin_keys.json
 ```
 
 ## Adicionando um novo tipo de documento
@@ -210,13 +271,51 @@ register_handler(MeuDocHandler(), prepend=True)
   oficial (última sincronização: VIO 2.4.5). A origem remota é
   `https://vio.serpro.gov.br/api/v2/{certificates,templates}`.
 
+### CIN
+
+- Origem: app **`identidade-nacional` 1.19.0** (React Native / Expo SDK 50). A
+  lógica fica no bundle Hermes `assets/index.android.bundle`, não no DEX.
+- O QRCode é um **JWS compacto** (`header.payload.signature` em base64url) —
+  nada de envelope binário, timestamp ou `template_id`.
+- Fluxo de `processQrCode`: decodifica o JWT → exige `cpf`, `iss == "MJSP"` e
+  `url` string → valida a assinatura → extrai o UUID do fim da `url` com
+  `/\/([0-9a-fA-F]{8}-...-[0-9a-fA-F]{12})$/`.
+- A verificação da assinatura é delegada ao módulo nativo
+  `IoReactNativeJwtModule.verify` (`@pagopa/io-react-native-jwt`), que usa o
+  `ECDSAVerifier` do Nimbus com BouncyCastle. Consequências práticas: a
+  assinatura vem no **formato JOSE** (`R || S`, 132 bytes para P-521) e não em
+  DER, e **nenhuma claim padrão é validada** — nem `exp`, nem `nbf`.
+- As chaves de `data/cin_keys.json` são as de `ENVIRONMENTS[*].publicKeyJWT`;
+  o app usa `CURRENT_ENV = PROD`. `HML` e `TST` compartilham o mesmo par.
+  **Validado contra uma CIN real**: a assinatura confere com a chave `PROD`.
+- Claims observadas em documento real: `iss`, `url`, `cpf`, `dns` (nascimento) e
+  `dvd` (validade). Não há `iat`, `exp` nem `kid`.
+- A claim **`dvd`** não é usada pelo app 1.19.0 — ele só renderiza CPF e `dns` na
+  tela offline —, mas o rótulo `dateValid` ("DATA DE VALIDADE") já existe em
+  `commonStrings.qrCodeScreen.validateOff`. Aqui ela é lida e usada na expiração.
+- Os demais dados vêm de `POST /api/dados` com o `uuid` — fora do escopo desta
+  biblioteca, que não faz rede.
+
+### Leitura do QRCode em digitalizações
+
+Duas armadilhas encontradas em documentos reais e tratadas em `qr.py`:
+
+- A CIN traz **códigos de barras 1D** (CODE39) ao lado do QRCode. Aceitar
+  qualquer simbologia faz o leitor devolver o conteúdo errado — por isso a
+  decodificação é restrita a `ZBarSymbol.QRCODE`.
+- Em PDFs digitalizados o QRCode ocupa poucos pixels e o zbar falha na
+  resolução original. A leitura escalona a imagem (1×, 2×, 3×, 4×) alternando
+  `LANCZOS` (suaviza o ruído do scanner) e `NEAREST` (preserva QRCodes nítidos
+  de um pixel por módulo), mais uma variante com contraste automático. PDFs
+  ainda são re-renderizados no dobro do DPI antes de desistir.
+
 ## Disclaimer / Aviso Legal
 
 > **Leia com atenção antes de utilizar.**
 
 Este é um **projeto pessoal**, desenvolvido de forma independente e sem vínculo
-com o SERPRO, o SENATRAN, o DENATRAN ou qualquer órgão governamental. Não se
-trata de uma ferramenta oficial de validação.
+com o SERPRO, o SENATRAN, o DENATRAN, o MJSP ou qualquer órgão governamental.
+Não se trata de uma ferramenta oficial de validação.
 
 O software é fornecido **"COMO ESTÁ" ("AS IS"), sem garantias de qualquer
 natureza**, expressas ou implícitas, incluindo — mas não se limitando a —
@@ -234,9 +333,10 @@ integridade ou não violação.
   para decisões que envolvam dinheiro, segurança, identidade, obrigações legais
   ou qualquer situação crítica. Para validação com valor legal, utilize sempre
   os **canais e aplicativos oficiais**.
-- Os metadados em `data/certificates.json` e `data/templates.json` são os dados
-  públicos distribuídos com o aplicativo oficial de validação e podem estar
-  **desatualizados**. Mantê-los atualizados é responsabilidade do usuário.
+- Os metadados em `data/certificates.json`, `data/templates.json` e
+  `data/cin_keys.json` são os dados públicos distribuídos com os aplicativos
+  oficiais de validação e podem estar **desatualizados**. Mantê-los atualizados
+  é responsabilidade do usuário.
 
 Ao utilizar este projeto, você **declara estar ciente e de acordo** com todos os
 termos deste aviso. Ferramenta destinada a fins de **estudo, pesquisa e

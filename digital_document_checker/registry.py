@@ -1,9 +1,12 @@
-"""Carregamento dos metadados: certificados e templates.
+"""Carregamento dos metadados: certificados, templates e chaves da CIN.
 
 Os arquivos ``data/certificates.json`` e ``data/templates.json`` são os mesmos
 distribuídos com o aplicativo oficial de validação. É possível substituí-los
 por versões atualizadas via :meth:`CertificateStore.from_file` /
 :meth:`TemplateStore.from_file`.
+
+``data/cin_keys.json`` traz as chaves públicas JWK do app da Carteira de
+Identidade Nacional (:class:`CINKeyStore`).
 """
 
 from __future__ import annotations
@@ -13,11 +16,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Iterator, Optional
 
-from .models import Certificate, Template, TemplateField
+from .models import Certificate, CINKey, Template, TemplateField
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 CERTIFICATES_FILE = DATA_DIR / "certificates.json"
 TEMPLATES_FILE = DATA_DIR / "templates.json"
+CIN_KEYS_FILE = DATA_DIR / "cin_keys.json"
 
 
 def parse_datetime(value: Optional[str]) -> Optional[datetime]:
@@ -157,8 +161,61 @@ class TemplateStore:
         return self._by_id.get(template_id)
 
 
+class CINKeyStore:
+    """Chaves públicas (JWK) que assinam o QRCode da CIN, por ambiente.
+
+    O app oficial usa apenas ``PROD`` (``CURRENT_ENV``); os demais ambientes
+    ficam disponíveis para depuração de QRCodes de homologação.
+    """
+
+    def __init__(self, keys: Iterable[CINKey], default_id: str = "PROD") -> None:
+        self._keys = list(keys)
+        self._by_id = {key.id: key for key in self._keys}
+        self.default_id = default_id
+
+    # -- construtores ---------------------------------------------------- #
+    @classmethod
+    def from_json(cls, payload: dict) -> "CINKeyStore":
+        keys = [
+            CINKey(
+                id=item.get("id"),
+                jwk=item.get("public_key") or {},
+                base_url=item.get("base_url"),
+            )
+            for item in (payload.get("environments") or [])
+        ]
+        return cls(keys, default_id=payload.get("default") or "PROD")
+
+    @classmethod
+    def from_file(cls, path: str | Path) -> "CINKeyStore":
+        with open(path, "r", encoding="utf-8") as handle:
+            return cls.from_json(json.load(handle))
+
+    @classmethod
+    def default(cls) -> "CINKeyStore":
+        return cls.from_file(CIN_KEYS_FILE)
+
+    # -- consultas ------------------------------------------------------- #
+    def __iter__(self) -> Iterator[CINKey]:
+        return iter(self._keys)
+
+    def __len__(self) -> int:
+        return len(self._keys)
+
+    def get(self, environment: Optional[str] = None) -> Optional[CINKey]:
+        return self._by_id.get(environment or self.default_id)
+
+    def candidates(self, environment: Optional[str] = None) -> list[CINKey]:
+        """Chaves a testar: só o ambiente pedido, ou todos quando ``environment`` é ``"*"``."""
+        if environment == "*":
+            return list(self._keys)
+        key = self.get(environment)
+        return [key] if key is not None else []
+
+
 _DEFAULT_CERTIFICATES: Optional[CertificateStore] = None
 _DEFAULT_TEMPLATES: Optional[TemplateStore] = None
+_DEFAULT_CIN_KEYS: Optional[CINKeyStore] = None
 
 
 def default_certificates() -> CertificateStore:
@@ -173,3 +230,10 @@ def default_templates() -> TemplateStore:
     if _DEFAULT_TEMPLATES is None:
         _DEFAULT_TEMPLATES = TemplateStore.default()
     return _DEFAULT_TEMPLATES
+
+
+def default_cin_keys() -> CINKeyStore:
+    global _DEFAULT_CIN_KEYS
+    if _DEFAULT_CIN_KEYS is None:
+        _DEFAULT_CIN_KEYS = CINKeyStore.default()
+    return _DEFAULT_CIN_KEYS

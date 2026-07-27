@@ -1,11 +1,12 @@
 import base64
+import json
 
 import pytest
 
 from digital_document_checker.codecs import base91
 from digital_document_checker.codecs.text import encode_6bit, encode_7bit
 from digital_document_checker.models import Certificate
-from digital_document_checker.registry import CertificateStore, TemplateStore
+from digital_document_checker.registry import CertificateStore, CINKeyStore, TemplateStore
 
 
 def build_v2_qr(fields_text: str, *, template_id: int, timestamp: int, sign) -> bytes:
@@ -180,3 +181,72 @@ def template_store():
         }
     ]
     return TemplateStore.from_json(payload)
+
+
+# --------------------------------------------------------------------------- #
+# CIN — QRCode em JWS compacto (ES512 / P-521)
+# --------------------------------------------------------------------------- #
+def b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode().rstrip("=")
+
+
+def build_cin_qr(claims: dict, *, sign, header: dict | None = None) -> str:
+    """Monta o JWT do QRCode da CIN, assinando ``header.payload``."""
+    header = header or {"alg": "ES512", "typ": "JWT"}
+    signing_input = (
+        b64url(json.dumps(header, separators=(",", ":")).encode())
+        + "."
+        + b64url(json.dumps(claims, separators=(",", ":")).encode())
+    )
+    return f"{signing_input}.{b64url(sign(signing_input.encode('ascii')))}"
+
+
+@pytest.fixture
+def cin_material():
+    """Par de chaves P-521 + função que assina no formato JOSE (``R || S``)."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+
+    key = ec.generate_private_key(ec.SECP521R1())
+    numbers = key.public_key().public_numbers()
+
+    def sign(data: bytes) -> bytes:
+        r, s = decode_dss_signature(key.sign(data, ec.ECDSA(hashes.SHA512())))
+        return r.to_bytes(66, "big") + s.to_bytes(66, "big")
+
+    jwk = {
+        "kty": "EC",
+        "crv": "P-521",
+        "x": b64url(numbers.x.to_bytes(66, "big")),
+        "y": b64url(numbers.y.to_bytes(66, "big")),
+    }
+    return {"sign": sign, "jwk": jwk}
+
+
+@pytest.fixture
+def cin_key_store(cin_material):
+    return CINKeyStore.from_json(
+        {
+            "default": "PROD",
+            "environments": [
+                {
+                    "id": "PROD",
+                    "base_url": "https://cin.mj.gov.br/api/",
+                    "public_key": cin_material["jwk"],
+                }
+            ],
+        }
+    )
+
+
+@pytest.fixture
+def cin_claims():
+    """Claims no formato observado em uma CIN real."""
+    return {
+        "iss": "MJSP",
+        "url": "https://cin.mj.gov.br/cidadao/8f14e45f-ceea-467a-9c0a-1e02d5a1e0f3",
+        "cpf": "12345678901",
+        "dns": "01/01/1990",
+        "dvd": "02/02/2036",
+    }

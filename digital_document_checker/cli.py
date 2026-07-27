@@ -18,7 +18,7 @@ from .exceptions import DigitalDocumentError
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="digital_document_checker",
-        description="Parsing e validação de documentos digitais (CNH e outros).",
+        description="Parsing e validação de documentos digitais (CNH, DNI, RG, CIN).",
     )
     parser.add_argument("arquivo", help="PDF ou imagem contendo o QRCode")
     parser.add_argument("--json", action="store_true", help="saída em JSON")
@@ -32,12 +32,20 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dpi", type=int, default=300, help="DPI ao rasterizar PDFs (padrão: 300)"
     )
+    parser.add_argument(
+        "--cin-env",
+        metavar="AMBIENTE",
+        default=None,
+        help="ambiente da CIN: PROD (padrão, como no app), HML, TST ou * para todos",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    checker = DigitalDocumentChecker(verify_signature=not args.no_verify)
+    checker = DigitalDocumentChecker(
+        verify_signature=not args.no_verify, cin_environment=args.cin_env
+    )
 
     try:
         result = checker.parse_file(args.arquivo, now=None)
@@ -71,9 +79,14 @@ def _print_human(result) -> None:
         return "—"
 
     print(f"Tipo .............. {result.document_name} ({result.document_type})")
-    print(f"Template .......... {result.template_id} — {result.template_owner or '?'}")
-    print(f"Versão QR ......... {result.qr_version} ({result.header_format})")
-    print(f"Emitido em ........ {result.issued_at}")
+    if result.header_format == "jws":
+        print(f"Formato QR ........ JWT assinado ({result.signature.algorithm or '?'})")
+        if result.issued_at:
+            print(f"Emitido em ........ {result.issued_at}")
+    else:
+        print(f"Template .......... {result.template_id} — {result.template_owner or '?'}")
+        print(f"Versão QR ......... {result.qr_version} ({result.header_format})")
+        print(f"Emitido em ........ {result.issued_at}")
     print(f"Parseado .......... {flag(result.is_parsed)}")
     print(f"Autêntico ......... {flag(result.is_authentic)}  ({result.signature.algorithm or result.signature.reason or '—'})")
     print(f"Vencido ........... {flag(result.is_expired)}")

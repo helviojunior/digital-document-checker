@@ -10,6 +10,7 @@ from typing import Optional
 
 from ..models import Template
 from .base import DocumentData, DocumentHandler
+from .cin import CINData, CINHandler
 from .cnh import CNHData, CNHHandler
 from .dni import DNIData, DNIHandler
 from .rg import RGData, RGHandler
@@ -42,6 +43,8 @@ register_handler(RGHandler())
 __all__ = [
     "DocumentData",
     "DocumentHandler",
+    "CINData",
+    "CINHandler",
     "CNHData",
     "CNHHandler",
     "DNIData",

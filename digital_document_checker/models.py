@@ -40,6 +40,19 @@ class Certificate:
 
 
 @dataclass(frozen=True)
+class CINKey:
+    """Chave pública (JWK) que assina o QRCode da CIN, por ambiente do app."""
+
+    id: Optional[str]
+    jwk: dict[str, Any]
+    base_url: Optional[str] = None
+
+    @property
+    def curve(self) -> Optional[str]:
+        return self.jwk.get("crv")
+
+
+@dataclass(frozen=True)
 class TemplateField:
     name: str
     label: Optional[str] = None

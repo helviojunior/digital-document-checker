@@ -1,0 +1,36 @@
+{
+  "_comment": "Chaves públicas do JWT do QRCode da CIN, extraídas do app oficial 'identidade-nacional' 1.19.0 (ENVIRONMENTS[*].publicKeyJWT). O app usa CURRENT_ENV = PROD.",
+  "default": "PROD",
+  "environments": [
+    {
+      "id": "PROD",
+      "base_url": "https://cin.mj.gov.br/api/",
+      "public_key": {
+        "kty": "EC",
+        "crv": "P-521",
+        "x": "ADmN2eus6YfvziHBVuc6cKlzWQ4w_hz1sU0c4qYxFFpNVnEw_d6PO_QVl0OQxMo7WxC0okYDqCVtEl9yoRUA3RLK",
+        "y": "AFc1lVJVmpLHNNnqXUmFToa6u2l9c_eOOdF6TqAj7chdGtKyqJQAFTWBzVrDQzUj7A4gWE8O3-q-sMm3EnQR3v7O"
+      }
+    },
+    {
+      "id": "HML",
+      "base_url": "https://hmlcinapi.mj.gov.br/api/v1/",
+      "public_key": {
+        "kty": "EC",
+        "crv": "P-521",
+        "x": "AWd5N-aAp9khoOcp3Cnl_SbMxvSCTptNf9xIEMLOcPg-0zJXCQFvuhejKYbrp5_ftRJKUIH6THa-7lC8jFapS1vy",
+        "y": "ADkPoh1y5tYqsC0BSFQ71icID_N3ZW1si5-2eiIaKwFauDPnwA1ncVBBRanzQ_qyXBmikpKAQ4S3XVwLyYTs1wLQ"
+      }
+    },
+    {
+      "id": "TST",
+      "base_url": "https://tstcin.mj.gov.br/api/",
+      "public_key": {
+        "kty": "EC",
+        "crv": "P-521",
+        "x": "AWd5N-aAp9khoOcp3Cnl_SbMxvSCTptNf9xIEMLOcPg-0zJXCQFvuhejKYbrp5_ftRJKUIH6THa-7lC8jFapS1vy",
+        "y": "ADkPoh1y5tYqsC0BSFQ71icID_N3ZW1si5-2eiIaKwFauDPnwA1ncVBBRanzQ_qyXBmikpKAQ4S3XVwLyYTs1wLQ"
+      }
+    }
+  ]
+}

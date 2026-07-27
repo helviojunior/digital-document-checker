@@ -17,14 +17,18 @@ from typing import Optional
 
 from . import crypto
 from .documents import find_handler
+from .documents.cin import EXPECTED_ISSUER, CINHandler
 from .exceptions import ParseError
 from .formats import get_format, parse_envelope
+from .formats.jws import looks_like_compact_jws, parse_compact_jws
 from .images import make_photo
 from .models import DocumentResult, SignatureInfo
 from .registry import (
     CertificateStore,
+    CINKeyStore,
     TemplateStore,
     default_certificates,
+    default_cin_keys,
     default_templates,
 )
 
@@ -38,10 +42,15 @@ class DigitalDocumentChecker:
         templates: Optional[TemplateStore] = None,
         *,
         verify_signature: bool = True,
+        cin_keys: Optional[CINKeyStore] = None,
+        cin_environment: Optional[str] = None,
     ) -> None:
         self.certificates = certificates or default_certificates()
         self.templates = templates or default_templates()
         self.verify_signature = verify_signature
+        self.cin_keys = cin_keys or default_cin_keys()
+        #: ambiente da CIN (``"PROD"`` como no app; ``"*"`` testa todos).
+        self.cin_environment = cin_environment
 
     # ------------------------------------------------------------------ #
     # Entradas
@@ -90,6 +99,10 @@ class DigitalDocumentChecker:
             now = now.replace(tzinfo=timezone.utc)
 
         result = DocumentResult(raw=bytes(data))
+
+        # 0) CIN — o QRCode é um JWT, não o envelope binário do padrão VIO.
+        if looks_like_compact_jws(data):
+            return self._process_cin(data, result, now=now)
 
         # 1) Envelope
         try:
@@ -169,6 +182,129 @@ class DigitalDocumentChecker:
         return result
 
     # ------------------------------------------------------------------ #
+    # CIN — Carteira de Identidade Nacional (QRCode = JWT assinado)
+    # ------------------------------------------------------------------ #
+    def _process_cin(self, data: bytes, result: DocumentResult, *, now: datetime) -> DocumentResult:
+        """Interpreta o QRCode do verso da CIN.
+
+        Reproduz ``processQrCode`` do app ``identidade-nacional``: decodifica o
+        JWT, confere ``cpf``/``iss``/``url``, valida a assinatura ES512 e extrai
+        o ``uuid`` do fim da ``url``. Diferente do app, nada interrompe o
+        parsing — cada checagem reprovada vira um item em ``errors``.
+        """
+        handler = CINHandler()
+        result.document_type = handler.type_name
+        result.document_name = handler.display_name
+        result.header_format = "jws"
+
+        try:
+            jws = parse_compact_jws(data)
+        except ParseError as exc:
+            result.add_error(f"JWT inválido: {exc}")
+            return result
+
+        result.is_parsed = True
+        result.signed_data = jws.signing_input
+        result.fields_raw_string = jws.raw
+
+        claims = jws.claims
+        cin = handler.build_from_claims(claims)
+        result.data = cin
+        result.fields = dict(cin.fields)
+        result.raw_fields = list(cin.raw_fields)
+
+        issued_at = _claim_datetime(claims.get("iat"))
+        if issued_at is not None:
+            result.issued_at = issued_at
+
+        # Checagens de conteúdo do app (nesta ordem).
+        if not cin.cpf:
+            result.add_error("QRCode sem o campo 'cpf'")
+        if cin.iss != EXPECTED_ISSUER:
+            result.add_error(
+                f"emissor inesperado: {cin.iss!r} (esperado {EXPECTED_ISSUER!r})"
+            )
+        if not isinstance(cin.url, str):
+            result.add_error("QRCode sem o campo 'url'")
+        elif cin.uuid is None:
+            result.add_error("a 'url' do QRCode não termina com um UUID")
+
+        self._verify_cin(result, jws, now)
+        self._check_cin_expiration(result, cin, claims, now)
+
+        result.is_valid = bool(
+            result.is_parsed
+            and result.is_authentic
+            and not result.errors
+            and not (result.is_expired is True)
+        )
+        return result
+
+    def _verify_cin(self, result: DocumentResult, jws, now: datetime) -> None:
+        info = SignatureInfo(signature=jws.signature)
+        result.signature = info
+
+        if not self.verify_signature:
+            info.reason = "verificação de assinatura desabilitada"
+            return
+        if not jws.signature:
+            info.reason = "JWT sem assinatura"
+            result.add_error(info.reason)
+            return
+        if not crypto.is_available():
+            info.reason = "dependência 'cryptography' ausente"
+            result.add_warning(info.reason)
+            return
+
+        candidates = self.cin_keys.candidates(self.cin_environment)
+        info.checked = True
+        info.candidates_tried = len(candidates)
+
+        if not candidates:
+            info.reason = f"nenhuma chave da CIN para o ambiente {self.cin_environment!r}"
+            result.add_error(info.reason)
+            return
+
+        reasons: list[str] = []
+        for key in candidates:
+            ok, detail = crypto.verify_jws(
+                jws.signing_input, jws.signature, key.jwk, jws.algorithm
+            )
+            if ok:
+                info.is_authentic = True
+                info.algorithm = detail
+                info.certificate_id = key.id
+                info.certificate_group = key.id
+                break
+            reasons.append(f"{key.id}: {detail}")
+        else:
+            info.reason = "assinatura não confere (" + "; ".join(reasons) + ")"
+            result.add_error(info.reason)
+
+        result.is_authentic = info.is_authentic
+        result.is_signature_checked = info.checked
+
+    def _check_cin_expiration(
+        self, result: DocumentResult, cin, claims: dict, now: datetime
+    ) -> None:
+        """Expiração pela claim ``dvd`` (validade do cartão) ou pelo ``exp`` do JWT."""
+        validade = _parse_br_date(cin.data_validade)
+        if validade is not None:
+            result.expires_on = validade
+            result.is_expired = now.date() > validade.date()
+            if result.is_expired:
+                result.add_warning(f"documento vencido em {cin.data_validade}")
+            return
+
+        expires_on = _claim_datetime(claims.get("exp"))
+        if expires_on is None:
+            return
+        result.expires_on = expires_on
+        result.is_expired = now > expires_on
+        if result.is_expired:
+            result.add_warning(f"JWT expirado em {expires_on.isoformat()}")
+
+    # ------------------------------------------------------------------ #
     def _verify(self, result, payload, template, envelope, now) -> None:
         info = SignatureInfo(signature=payload.signature)
         result.signature = info
@@ -233,6 +369,16 @@ class DigitalDocumentChecker:
             result.is_expired = now.date() > parsed.date()
         elif result.expires_on is not None:
             result.is_expired = now > result.expires_on
+
+
+def _claim_datetime(value) -> Optional[datetime]:
+    """Converte uma claim ``NumericDate`` (segundos desde a época) em ``datetime``."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        return datetime.fromtimestamp(value, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def _parse_br_date(value: Optional[str]) -> Optional[datetime]:

@@ -1,8 +1,9 @@
 """Digital Document Checker.
 
 Biblioteca modular para *parsing*, verificação e validação de documentos
-digitais brasileiros codificados em QRCode (padrão SERPRO/VIO), com a CNH como
-primeiro tipo suportado.
+digitais brasileiros codificados em QRCode: o padrão SERPRO/VIO (CNH, DNI,
+RG Digital) e a CIN — Carteira de Identidade Nacional, cujo QRCode é um JWT
+assinado (ES512) pelo MJSP.
 
 Uso rápido::
 
@@ -27,13 +28,14 @@ from .exceptions import (
 )
 from .models import (
     Certificate,
+    CINKey,
     DocumentResult,
     Envelope,
     Photo,
     SignatureInfo,
     Template,
 )
-from .registry import CertificateStore, TemplateStore
+from .registry import CertificateStore, CINKeyStore, TemplateStore
 from .__meta__ import __version__
 
 __all__ = [
@@ -42,9 +44,11 @@ __all__ = [
     "SignatureInfo",
     "Photo",
     "Certificate",
+    "CINKey",
     "Template",
     "Envelope",
     "CertificateStore",
+    "CINKeyStore",
     "TemplateStore",
     "DigitalDocumentError",
     "ParseError",

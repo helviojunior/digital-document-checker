@@ -12,10 +12,14 @@ versão  classe no APK                formato
 5       ``y1.h``                     multibloco (6 bits)
 6       ``y1.j``                     multibloco (basE91 + 7 bits)
 ======  ===========================  ==============================
+
+A CIN (Carteira de Identidade Nacional) fica fora dessa tabela: seu QRCode é
+um JWS compacto, tratado por :mod:`.jws`.
 """
 
 from .envelope import parse_envelope
 from .base import Format, get_format, register_format, supported_versions
+from .jws import CompactJWS, looks_like_compact_jws, parse_compact_jws
 from . import v2_cnh, v3_dni, multiblock, v1_text  # noqa: F401  (registram-se ao importar)
 
 __all__ = [
@@ -24,4 +28,7 @@ __all__ = [
     "get_format",
     "register_format",
     "supported_versions",
+    "CompactJWS",
+    "parse_compact_jws",
+    "looks_like_compact_jws",
 ]
